@@ -75,9 +75,9 @@ export const getAllProducts = (): Promise<ProductsResponse> => {
     .then((res) => handleResponse<ProductsResponse>(res));
 };
 
-export const fetchProductsWithPagination = async (limit: number = 4, skip: number = 0): Promise<ProductsResponse> => {
+export const fetchProductsWithPagination = async (limit: number = 0, skip: number = 20): Promise<ProductsResponse> => {
   const safeSkip = typeof skip === 'number' && skip >= 0 ? skip : 0;
-  const safeLimit = typeof limit === 'number' && limit > 0 ? limit : 4;
+  const safeLimit = typeof limit === 'number' && limit > 0 ? limit : 20;
 
   const res = await fetch(`${DATA_URL}?limit=${safeLimit}&skip=${safeSkip}`);
   return await handleResponse<ProductsResponse>(res);
