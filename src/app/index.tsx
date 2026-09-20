@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, PanResponder, Pressable, StyleSheet, Text, View} from 'react-native';
+import { ActivityIndicator, FlatList, Image, PanResponder, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Product, fetchProductsWithPagination } from '../api/api';
+import { searchProducts, Product, fetchProductsWithPagination } from '../api/api';
+import { debouncedValue } from '@/hooks/debounceValue';
 
 const LIMIT = 20; // 20 items per batch (1 page)
 
@@ -14,9 +15,7 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const isLoadingRef = useRef(false);
-
-  // Scroll Bar Usestate
-  const [scrollProgress, setScrollProgress] = useState(0);
+  const [scrollProgress, setScrollProgress] = useState(0);   // Scroll Bar Usestate
   const [contentHeight, setContentHeight] = useState(1);
   const [visibleHeight, setVisibleHeight] = useState(1);
 
@@ -26,6 +25,47 @@ export default function HomeScreen() {
   const visibleHeightRef = useRef(1);
   const scrollProgressRef = useRef(0);
   const dragStartScrollY = useRef(0);
+
+  //Search states 
+  const [searchQuery, setSearchQuery] = useState('');
+  const debouncedQuery = debouncedValue(searchQuery.trim(), 400);
+  const [searchResults, setSearchResults] = useState<Product[]>([]); 
+  const [isSearching, setIsSearching] = useState(false); 
+  const searchRequestIdRef = useRef(0); // guards against out-of-order responses
+  const isSearchMode = debouncedQuery.length > 0;
+
+  useEffect(() => {
+  if (!isSearchMode) {
+    setSearchResults([]);
+    return;
+  }
+
+  const requestId = ++searchRequestIdRef.current;
+  setIsSearching(true);
+
+  searchProducts(debouncedQuery)
+    .then((data) => {
+      // ignore stale responses if a newer search has started since
+      if (requestId === searchRequestIdRef.current) {
+        setSearchResults(data.products || []);
+      }
+    })
+    .catch((error) => console.error('Search error:', error))
+    .finally(() => {
+      if (requestId === searchRequestIdRef.current) {
+        setIsSearching(false);
+      }
+    });
+}, [debouncedQuery, isSearchMode]);
+
+useEffect(() => {
+      setLoading(true);
+    // Initial fetch for the first page of products
+    fetchProductsWithPagination(LIMIT, 0)
+      .then((data) => setProducts(data.products || []))
+      .catch((error) => console.error('Error fetching initial data:', error));
+  }, []);
+
 
   const loadMoreProducts = async () => {
     if (isLoadingRef.current || !hasMore) return;
@@ -59,15 +99,11 @@ export default function HomeScreen() {
     }
   };
 
-  useEffect(() => {
-    // Initial fetch for the first page of products
-    fetchProductsWithPagination(LIMIT, 0)
-      .then((data) => setProducts(data.products || []))
-      .catch((error) => console.error('Error fetching initial data:', error));
-  }, []);
+  
 
   // Scrollbar (dynamic based on item (the more item, the narrow the scroll bar))
   const thumbHeight = Math.max((visibleHeight / contentHeight) * visibleHeight, 20);
+  const [titleBarHeight, setTitleBarHeight] = useState(100);
   const maxScroll = contentHeight - visibleHeight;
   const scrollOffset = maxScroll > 0 ? (scrollProgress / maxScroll) * (visibleHeight - thumbHeight) : 0;
 
@@ -115,18 +151,40 @@ export default function HomeScreen() {
   return (
     <LinearGradient colors={['#ffffff', '#e6f0fa', '#cce0ff']} style={styles.gradientContainer}>
       <View style={styles.mainContainer}>
-        {/* Sticky app name */}
+        {/* Sticky app name + search bar */}
         <View style={styles.appTitleBar}>
-          <Text style={styles.appTitle}>SearchUp</Text>
+          <Text style={styles.appTitle}>GenStore</Text>
+
+          <View style={styles.searchInputWrapper}>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search products..."
+              placeholderTextColor="#8a99ad"
+              style={styles.searchInput}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable
+                onPress={() => setSearchQuery('')}
+                style={styles.clearButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.clearButtonText}>✕</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <FlatList
           ref={flatListRef}
-          data={products}
+          data={isSearchMode ? searchResults : products}
           keyExtractor={(item, index) => `${item.id}-${index}`}
           numColumns={2}
           columnWrapperStyle={styles.columnWrapper}
-          ListHeaderComponent={renderListHeader}
+          ListHeaderComponent={isSearchMode ? null : renderListHeader}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
@@ -143,7 +201,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           )}
-          onEndReached={loadMoreProducts}
+          onEndReached={isSearchMode ? undefined : loadMoreProducts}
           onEndReachedThreshold={0.5}
           onScroll={(event) => {
             const y = event.nativeEvent.contentOffset.y;
@@ -160,24 +218,31 @@ export default function HomeScreen() {
             setVisibleHeight(h);
           }}
           scrollEventThrottle={16}
+          ListEmptyComponent={
+            isSearchMode && !isSearching ? (
+              <Text style={styles.emptyText}>No results for "{debouncedQuery}"</Text>
+            ) : null
+          }
           ListFooterComponent={
-            loading ? (
+            (loading || isSearching) ? (
               <ActivityIndicator size="large" color="#1a365d" style={styles.footerSpinner} />
             ) : null
           }
         />
 
-        {/* Custom scrollbar ; rightside */}
-        <View style={styles.scrollTrack}>
-          <View
-            {...panResponder.panHandlers}
-            hitSlop={{ left: 10, right: 10, top: 4, bottom: 4 }}
-            style={[
-              styles.scrollThumb,
-              { height: thumbHeight, transform: [{ translateY: scrollOffset }] },
-            ]}
-          />
-        </View>
+        {/* Custom scrollbar ; rightside — hide while searching, since results aren't paginated */}
+        {!isSearchMode && (
+          <View style={[styles.scrollTrack, { top: titleBarHeight + 8 }]}>
+            <View
+              {...panResponder.panHandlers}
+              hitSlop={{ left: 10, right: 10, top: 4, bottom: 4 }}
+              style={[
+                styles.scrollThumb,
+                { height: thumbHeight, transform: [{ translateY: scrollOffset }] },
+              ]}
+            />
+          </View>
+        )}
       </View>
     </LinearGradient>
   );
@@ -235,7 +300,7 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     padding: 16,
-    paddingTop: 100,
+    paddingTop: 160,
     paddingBottom: 40,
   },
 
@@ -303,6 +368,38 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: 'rgba(26, 54, 93, 0.5)',
     borderRadius: 3,
+  },
+
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    height: 40,
+    backgroundColor: '#f0f4f8',
+    borderRadius: 8,
+  },
+
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1a365d',
+  },
+
+  clearButton: {
+    paddingLeft: 8,
+  },
+
+  clearButtonText: {
+    fontSize: 16,
+    color: '#8a99ad',
+  },
+
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 14,
+    color: '#6b7c93',
   },
 
 });
