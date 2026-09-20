@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, PanResponder, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import { Animated, ActivityIndicator, FlatList, Image, PanResponder, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { searchProducts, Product, fetchProductsWithPagination } from '../api/api';
@@ -9,7 +9,10 @@ const LIMIT = 20; // 20 items per batch (1 page)
 
 export default function HomeScreen() {
   const router = useRouter();
-
+  
+  const [refreshing, setRefreshing] = useState(false); // Refreshstate
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
   // Product/ Loading indicator / Load more states
   const [products, setProducts] = useState<Product[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -66,6 +69,24 @@ useEffect(() => {
       .catch((error) => console.error('Error fetching initial data:', error));
   }, []);
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    const minDelay = new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const fetchPromise = isSearchMode
+        ? searchProducts(debouncedQuery).then((data) => setSearchResults(data.products || []))
+        : fetchProductsWithPagination(LIMIT, 0).then((data) => {
+            setProducts(data.products || []);
+            setHasMore(true);
+          });
+
+      await Promise.all([fetchPromise, minDelay]); // wait for both, so it never flashes faster than 500ms
+    } catch (error) {
+      console.error('Error refreshing:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const loadMoreProducts = async () => {
     if (isLoadingRef.current || !hasMore) return;
@@ -187,20 +208,25 @@ useEffect(() => {
           ListHeaderComponent={isSearchMode ? null : renderListHeader}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => (
-            <View style={styles.gridItemWrapper}>
-              <Pressable
-                style={styles.cardContainer}
-                onPress={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })}
-              >
-                <Image source={{ uri: item.thumbnail }} style={styles.itemImage} />
-                <Text style={styles.itemTitle} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                <Text style={styles.itemPrice}>${item.price}</Text>
-              </Pressable>
-            </View>
-          )}
+          renderItem={({ item, index }) => (
+          <View style={styles.gridItemWrapper}>
+            <Pressable
+              style={styles.cardContainer}
+              onPress={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })}
+            >
+              {/* Badge - top-left corner */}
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{index + 1}</Text>
+              </View>
+
+              <Image source={{ uri: item.thumbnail }} style={styles.itemImage} />
+              <Text style={styles.itemTitle} numberOfLines={1}>
+                {item.title}
+              </Text>
+              <Text style={styles.itemPrice}>${item.price}</Text>
+            </Pressable>
+          </View>
+        )}
           onEndReached={isSearchMode ? undefined : loadMoreProducts}
           onEndReachedThreshold={0.5}
           onScroll={(event) => {
@@ -228,6 +254,8 @@ useEffect(() => {
               <ActivityIndicator size="large" color="#1a365d" style={styles.footerSpinner} />
             ) : null
           }
+          refreshing={refreshing}
+          onRefresh={onRefresh}
         />
 
         {/* Custom scrollbar ; rightside — hide while searching, since results aren't paginated */}
@@ -320,6 +348,7 @@ const styles = StyleSheet.create({
   // Product card
   cardContainer: {
     backgroundColor: '#ffffff',
+    position: 'relative',
     borderRadius: 10,
     padding: 12,
     alignItems: 'center',
@@ -400,6 +429,27 @@ const styles = StyleSheet.create({
     marginTop: 40,
     fontSize: 14,
     color: '#6b7c93',
+  },
+
+  badge: {
+    position: 'absolute',
+    top: -6,
+    left: -6,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11, 
+    backgroundColor: '#2b8a3e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    zIndex: 5,
+    elevation: 5,
+  },
+
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 
 });
