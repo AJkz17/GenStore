@@ -1,6 +1,3 @@
-// ---- Types ----
-// One Product shape covers every DummyJSON category (beauty, mobile-accessories, etc.) —
-// the fields are identical across categories, only the values differ.
 
 export interface ProductDimensions {
   width: number;
@@ -33,7 +30,7 @@ export interface Product {
   rating: number;
   stock: number;
   tags: string[];
-  brand?: string; // some categories omit brand
+  brand?: string;
   sku: string;
   weight: number;
   dimensions: ProductDimensions;
@@ -59,8 +56,8 @@ interface ApiErrorResponse {
   message: string;
 }
 
-// ---- API calls ----
-const DATA_URL = 'https://dummyjson.com/products?';
+// -API calls ----
+const DATA_URL = 'https://dummyjson.com/products';
 
 async function handleResponse<T>(res: Response): Promise<T> {
   const json = await res.json();
@@ -82,3 +79,9 @@ export const fetchProductsWithPagination = async (limit: number = 0, skip: numbe
   const res = await fetch(`${DATA_URL}?limit=${safeLimit}&skip=${safeSkip}`);
   return await handleResponse<ProductsResponse>(res);
 };
+
+// func to render specific product by ID
+export async function getProductById(id: string | number): Promise<Product> {
+  const res = await fetch(`${DATA_URL}/${id}`);
+  return await handleResponse<Product>(res);
+}

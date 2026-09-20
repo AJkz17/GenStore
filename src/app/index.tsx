@@ -69,8 +69,7 @@ export default function HomeScreen() {
   // Scrollbar (dynamic based on item (the more item, the narrow the scroll bar))
   const thumbHeight = Math.max((visibleHeight / contentHeight) * visibleHeight, 20);
   const maxScroll = contentHeight - visibleHeight;
-  const scrollOffset =
-    maxScroll > 0 ? (scrollProgress / maxScroll) * (visibleHeight - thumbHeight) : 0;
+  const scrollOffset = maxScroll > 0 ? (scrollProgress / maxScroll) * (visibleHeight - thumbHeight) : 0;
 
   // Dragable scroll bar (Handle pressing, dragging)
   const panResponderRef = useRef<ReturnType<typeof PanResponder.create> | null>(null);
@@ -253,7 +252,7 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
 
-  // ---- Product card ----
+  // Product card
   cardContainer: {
     backgroundColor: '#ffffff',
     borderRadius: 10,
@@ -288,7 +287,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
-  // ---- Custom scrollbar ----
+  // Custom scrollbar
   scrollTrack: {
     position: 'absolute',
     right: 4,
