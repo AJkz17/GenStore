@@ -58,6 +58,7 @@ interface ApiErrorResponse {
 
 // -API calls ----
 const DATA_URL = 'https://dummyjson.com/products';
+const SEARCH_URL = 'https://dummyjson.com/products/search';
 
 async function handleResponse<T>(res: Response): Promise<T> {
   const json = await res.json();
@@ -85,3 +86,8 @@ export async function getProductById(id: string | number): Promise<Product> {
   const res = await fetch(`${DATA_URL}/${id}`);
   return await handleResponse<Product>(res);
 }
+
+export const searchProducts = async (query: string): Promise<ProductsResponse> => {
+  const res = await fetch(`${SEARCH_URL}?q=${encodeURIComponent(query)}`);
+  return await handleResponse<ProductsResponse>(res);
+};
