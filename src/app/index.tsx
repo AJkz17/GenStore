@@ -1,73 +1,142 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, ActivityIndicator, FlatList, Image, PanResponder, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import { Animated, ActivityIndicator, FlatList, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { searchProducts, Product, fetchProductsWithPagination } from '../api/api';
 import { debouncedValue } from '@/hooks/debounceValue';
+import { Category, fetchCategories, fetchProductsByCategory } from '../api/api';
 
-const LIMIT = 20; // 20 items per batch (1 page)
+const LIMIT = 20;
 
 export default function HomeScreen() {
   const router = useRouter();
-  
-  const [refreshing, setRefreshing] = useState(false); // Refreshstate
+  const [refreshing, setRefreshing] = useState(false);
   const [showRefreshBanner, setShowRefreshBanner] = useState(false);
   const bannerOpacity = useRef(new Animated.Value(0)).current;
-  // Product/ Loading indicator / Load more states
+
   const [products, setProducts] = useState<Product[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const isLoadingRef = useRef(false);
-  const [scrollProgress, setScrollProgress] = useState(0);   // Scroll Bar Usestate
+  const [scrollProgress, setScrollProgress] = useState(0);
   const [contentHeight, setContentHeight] = useState(1);
   const [visibleHeight, setVisibleHeight] = useState(1);
-
 
   const flatListRef = useRef<FlatList>(null);
   const contentHeightRef = useRef(1);
   const visibleHeightRef = useRef(1);
   const scrollProgressRef = useRef(0);
   const dragStartScrollY = useRef(0);
-
-  //Search states 
+  
+  // Search states
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedQuery = debouncedValue(searchQuery.trim(), 400);
-  const [searchResults, setSearchResults] = useState<Product[]>([]); 
-  const [isSearching, setIsSearching] = useState(false); 
-  const searchRequestIdRef = useRef(0); // guards against out-of-order responses
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchRequestIdRef = useRef(0);
   const isSearchMode = debouncedQuery.length > 0;
 
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [categoryResults, setCategoryResults] = useState<Product[]>([]);
+  const [isCategoryLoading, setIsCategoryLoading] = useState(false);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const isCategoryMode = selectedCategory !== null;
+
+  const visibleCategories = categories.slice(0, 3);
+  const remainingCategories = categories.slice(3);
+
+  const handleSelectCategory = (slug: string) => {
+    setSearchQuery('');
+    setSelectedCategory((prev) => (prev === slug ? null : slug));
+  };
+
+  const handleSelectCategoryFromDropdown = (slug: string) => {
+    handleSelectCategory(slug);
+    setShowCategoryDropdown(false);
+  };
+
+  const handleChangeSearch = (text: string) => {
+    setSelectedCategory(null);
+    setSearchQuery(text);
+  };
+
   useEffect(() => {
-  if (!isSearchMode) {
-    setSearchResults([]);
-    return;
-  }
+    fetchCategories()
+      .then(setCategories)
+      .catch((error) => console.error('Error fetching categories:', error));
+  }, []);
 
-  const requestId = ++searchRequestIdRef.current;
-  setIsSearching(true);
+  useEffect(() => {
+    scrollProgressRef.current = 0;
+    contentHeightRef.current = 1;
+    visibleHeightRef.current = 1;
+    setScrollProgress(0);
+    setContentHeight(1);
+    setVisibleHeight(1);
+  }, [isSearchMode, isCategoryMode, selectedCategory]);
 
-  searchProducts(debouncedQuery)
-    .then((data) => {
-      // ignore stale responses if a newer search has started since
-      if (requestId === searchRequestIdRef.current) {
-        setSearchResults(data.products || []);
-      }
-    })
-    .catch((error) => console.error('Search error:', error))
-    .finally(() => {
-      if (requestId === searchRequestIdRef.current) {
-        setIsSearching(false);
-      }
-    });
-}, [debouncedQuery, isSearchMode]);
+  useEffect(() => {
+    if (!isCategoryMode) {
+      setCategoryResults([]);
+      return;
+    }
 
-useEffect(() => {
-      setLoading(true);
+    setIsCategoryLoading(true);
+    fetchProductsByCategory(selectedCategory)
+      .then((data) => setCategoryResults(data.products || []))
+      .catch((error) => console.error('Error fetching category products:', error))
+      .finally(() => setIsCategoryLoading(false));
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    if (!isSearchMode) {
+      setSearchResults([]);
+      return;
+    }
+
+    const requestId = ++searchRequestIdRef.current;
+    setIsSearching(true);
+
+    searchProducts(debouncedQuery)
+      .then((data) => {
+        if (requestId === searchRequestIdRef.current) {
+          setSearchResults(data.products || []);
+        }
+      })
+      .catch((error) => console.error('Search error:', error))
+      .finally(() => {
+        if (requestId === searchRequestIdRef.current) {
+          setIsSearching(false);
+        }
+      });
+  }, [debouncedQuery, isSearchMode]);
+
+  useEffect(() => {
     // Initial fetch for the first page of products
+    setLoading(true);
     fetchProductsWithPagination(LIMIT, 0)
       .then((data) => setProducts(data.products || []))
-      .catch((error) => console.error('Error fetching initial data:', error));
+      .catch((error) => console.error('Error fetching initial data:', error))
+      .finally(() => setLoading(false));
   }, []);
+
+  const triggerRefreshBanner = () => {
+    setShowRefreshBanner(true);
+    Animated.sequence([
+      Animated.timing(bannerOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.delay(900),
+      Animated.timing(bannerOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setShowRefreshBanner(false));
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -75,12 +144,15 @@ useEffect(() => {
     try {
       const fetchPromise = isSearchMode
         ? searchProducts(debouncedQuery).then((data) => setSearchResults(data.products || []))
+        : isCategoryMode
+        ? fetchProductsByCategory(selectedCategory).then((data) => setCategoryResults(data.products || []))
         : fetchProductsWithPagination(LIMIT, 0).then((data) => {
             setProducts(data.products || []);
             setHasMore(true);
           });
 
-      await Promise.all([fetchPromise, minDelay]); // wait for both, so it never flashes faster than 500ms
+      await Promise.all([fetchPromise, minDelay]);
+      triggerRefreshBanner();
     } catch (error) {
       console.error('Error refreshing:', error);
     } finally {
@@ -102,7 +174,6 @@ useEffect(() => {
         setHasMore(false);
       } else {
         setProducts((prev) => {
-          // Filter out any potential duplicates by ID, just to be safe
           const existingIds = new Set(prev.map((p) => p.id));
           const newUniqueProducts = data.products.filter((p) => !existingIds.has(p.id));
           return [...prev, ...newUniqueProducts];
@@ -120,19 +191,20 @@ useEffect(() => {
     }
   };
 
-  
+  const activeData = isSearchMode ? searchResults : isCategoryMode ? categoryResults : products;
+  const isFilteredMode = isSearchMode || isCategoryMode;
 
   // Scrollbar (dynamic based on item (the more item, the narrow the scroll bar))
   const thumbHeight = Math.max((visibleHeight / contentHeight) * visibleHeight, 20);
   const [titleBarHeight, setTitleBarHeight] = useState(100);
   const maxScroll = contentHeight - visibleHeight;
   const scrollOffset = maxScroll > 0 ? (scrollProgress / maxScroll) * (visibleHeight - thumbHeight) : 0;
+  const canScroll = contentHeight > visibleHeight;
 
-  // Dragable scroll bar (Handle pressing, dragging)
   const panResponderRef = useRef<ReturnType<typeof PanResponder.create> | null>(null);
   if (!panResponderRef.current) {
     panResponderRef.current = PanResponder.create({
-      onStartShouldSetPanResponder: () => true, //Capture the touch evnet when user interact with scroll bar
+      onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
 
       onPanResponderGrant: () => {
@@ -162,24 +234,26 @@ useEffect(() => {
   }
   const panResponder = panResponderRef.current;
 
-  // header Container for title
   const renderListHeader = () => (
     <View style={styles.listHeaderContainer}>
-      <Text style={styles.headerSecondary}>All Products</Text>
+      <Text style={styles.headerSecondary}>
+        {isCategoryMode ? categories.find((c) => c.slug === selectedCategory)?.name : 'All Products'}
+      </Text>
     </View>
   );
 
   return (
     <LinearGradient colors={['#ffffff', '#e6f0fa', '#cce0ff']} style={styles.gradientContainer}>
       <View style={styles.mainContainer}>
-        {/* Sticky app name + search bar */}
-        <View style={styles.appTitleBar}>
+        {/* Sticky app name */}
+        <View style={styles.appTitleBar} onLayout={(event) => setTitleBarHeight(event.nativeEvent.layout.height)}>
           <Text style={styles.appTitle}>GenStore</Text>
 
+          {/* Search bar */}
           <View style={styles.searchInputWrapper}>
             <TextInput
               value={searchQuery}
-              onChangeText={setSearchQuery}
+              onChangeText={handleChangeSearch}
               placeholder="Search products..."
               placeholderTextColor="#8a99ad"
               style={styles.searchInput}
@@ -197,37 +271,101 @@ useEffect(() => {
               </Pressable>
             )}
           </View>
+
+          <View style={styles.categoryRow}>
+            {visibleCategories.map((item) => {
+              const isActive = selectedCategory === item.slug;
+              return (
+                <Pressable
+                  key={item.slug}
+                  onPress={() => handleSelectCategory(item.slug)}
+                  style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                >
+                  <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
+                    {item.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+
+            {remainingCategories.length > 0 && (
+              <Pressable
+                onPress={() => setShowCategoryDropdown(true)}
+                style={[
+                  styles.categoryChip,
+                  remainingCategories.some((c) => c.slug === selectedCategory) && styles.categoryChipActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.categoryChipText,
+                    remainingCategories.some((c) => c.slug === selectedCategory) && styles.categoryChipTextActive,
+                  ]}
+                >
+                  More ▾
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
+        <Modal
+          visible={showCategoryDropdown}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCategoryDropdown(false)}
+        >
+          <Pressable style={styles.dropdownOverlay} onPress={() => setShowCategoryDropdown(false)}>
+            <View style={[styles.dropdownMenu, { top: titleBarHeight + 8 }]}>
+              <ScrollView showsVerticalScrollIndicator={true} bounces={false}>
+                {remainingCategories.map((item) => {
+                  const isActive = selectedCategory === item.slug;
+                  return (
+                    <Pressable
+                      key={item.slug}
+                      onPress={() => handleSelectCategoryFromDropdown(item.slug)}
+                      style={styles.dropdownItem}
+                    >
+                      <Text style={[styles.dropdownItemText, isActive && styles.dropdownItemTextActive]}>
+                        {item.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Modal>
+
         <FlatList
+          key={isSearchMode ? 'search' : isCategoryMode ? `category-${selectedCategory}` : 'all'}
           ref={flatListRef}
-          data={isSearchMode ? searchResults : products}
+          data={activeData}
           keyExtractor={(item, index) => `${item.id}-${index}`}
           numColumns={2}
           columnWrapperStyle={styles.columnWrapper}
-          ListHeaderComponent={isSearchMode ? null : renderListHeader}
-          contentContainerStyle={styles.scrollContent}
+          ListHeaderComponent={renderListHeader}
+          contentContainerStyle={[styles.scrollContent, { paddingTop: titleBarHeight + 16 }]}
           showsVerticalScrollIndicator={false}
           renderItem={({ item, index }) => (
-          <View style={styles.gridItemWrapper}>
-            <Pressable
-              style={styles.cardContainer}
-              onPress={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })}
-            >
-              {/* Badge - top-left corner */}
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{index + 1}</Text>
-              </View>
+            <View style={styles.gridItemWrapper}>
+              <Pressable
+                style={styles.cardContainer}
+                onPress={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })}
+              >
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{index + 1}</Text>
+                </View>
 
-              <Image source={{ uri: item.thumbnail }} style={styles.itemImage} />
-              <Text style={styles.itemTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={styles.itemPrice}>${item.price}</Text>
-            </Pressable>
-          </View>
-        )}
-          onEndReached={isSearchMode ? undefined : loadMoreProducts}
+                <Image source={{ uri: item.thumbnail }} style={styles.itemImage} />
+                <Text style={styles.itemTitle} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <Text style={styles.itemPrice}>${item.price}</Text>
+              </Pressable>
+            </View>
+          )}
+          onEndReached={isFilteredMode ? undefined : loadMoreProducts}
           onEndReachedThreshold={0.5}
           onScroll={(event) => {
             const y = event.nativeEvent.contentOffset.y;
@@ -245,21 +383,23 @@ useEffect(() => {
           }}
           scrollEventThrottle={16}
           ListEmptyComponent={
-            isSearchMode && !isSearching ? (
-              <Text style={styles.emptyText}>No results for "{debouncedQuery}"</Text>
+            isFilteredMode && !isSearching && !isCategoryLoading ? (
+              <Text style={styles.emptyText}>
+                {isSearchMode ? `No results for "${debouncedQuery}"` : 'No products in this category'}
+              </Text>
             ) : null
           }
           ListFooterComponent={
-            (loading || isSearching) ? (
+            (loading || isSearching || isCategoryLoading) ? (
               <ActivityIndicator size="large" color="#1a365d" style={styles.footerSpinner} />
             ) : null
           }
           refreshing={refreshing}
           onRefresh={onRefresh}
         />
-
-        {/* Custom scrollbar ; rightside — hide while searching, since results aren't paginated */}
-        {!isSearchMode && (
+         
+         {/* Custom scrollbar ; rightside — hide while searching, since results aren't paginated */}
+        {!isFilteredMode && canScroll && (
           <View style={[styles.scrollTrack, { top: titleBarHeight + 8 }]}>
             <View
               {...panResponder.panHandlers}
@@ -299,7 +439,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderBottomWidth: 2,
     borderBottomColor: 'rgba(0, 0, 0, 0.05)',
-    elevation: 4, 
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
@@ -328,7 +468,6 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     padding: 16,
-    paddingTop: 160,
     paddingBottom: 40,
   },
 
@@ -345,7 +484,6 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
 
-  // Product card
   cardContainer: {
     backgroundColor: '#ffffff',
     position: 'relative',
@@ -381,15 +519,13 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
-  // Custom scrollbar
   scrollTrack: {
     position: 'absolute',
-    right: 4,
-    top: 50,
+    right: 6,
     bottom: 40,
-    width: 6,
+    width: 8,
     backgroundColor: 'rgba(26, 54, 93, 0.1)',
-    borderRadius: 3,
+    borderRadius: 4,
     overflow: 'hidden',
   },
 
@@ -433,15 +569,15 @@ const styles = StyleSheet.create({
 
   badge: {
     position: 'absolute',
-    top: -6,
-    left: -6,
+    top: 10,
+    left: 10,
     minWidth: 22,
     height: 22,
-    borderRadius: 11, 
-    backgroundColor: '#2b8a3e',
+    borderRadius: 11,
+    backgroundColor: '#787276',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
     zIndex: 5,
     elevation: 5,
   },
@@ -452,4 +588,83 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f0f4f8',
+  },
+
+  categoryChipActive: {
+    backgroundColor: '#1a365d',
+  },
+
+  categoryChipText: {
+    fontSize: 13,
+    color: '#1a365d',
+    fontWeight: '500',
+  },
+
+  categoryChipTextActive: {
+    color: '#fafafa',
+  },
+
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+
+  dropdownMenu: {
+    position: 'absolute',
+    right: 16,
+    left: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+    maxHeight: 300,
+  },
+
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+
+  dropdownItemText: {
+    fontSize: 15,
+    color: '#1a365d',
+  },
+
+  dropdownItemTextActive: {
+    fontWeight: 'bold',
+    color: '#2b8a3e',
+  },
+
+  refreshBanner: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: '#1a365d',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    zIndex: 20,
+    elevation: 5,
+  },
+
+  refreshBannerText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });
