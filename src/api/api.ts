@@ -45,6 +45,12 @@ export interface Product {
   thumbnail: string;
 }
 
+export interface Category {
+  slug: string;
+  name: string;
+  url: string;
+}
+
 export interface ProductsResponse {
   products: Product[];
   total: number;
@@ -73,7 +79,7 @@ export const getAllProducts = (): Promise<ProductsResponse> => {
     .then((res) => handleResponse<ProductsResponse>(res));
 };
 
-export const fetchProductsWithPagination = async (limit: number = 0, skip: number = 20): Promise<ProductsResponse> => {
+export const fetchProductsWithPagination = async (limit: number = 0, skip: number = 10): Promise<ProductsResponse> => {
   const safeSkip = typeof skip === 'number' && skip >= 0 ? skip : 0;
   const safeLimit = typeof limit === 'number' && limit > 0 ? limit : 20;
 
@@ -91,3 +97,13 @@ export const searchProducts = async (query: string): Promise<ProductsResponse> =
   const res = await fetch(`${SEARCH_URL}?q=${encodeURIComponent(query)}`);
   return await handleResponse<ProductsResponse>(res);
 };
+
+export const fetchCategories = async (): Promise<Category[]> => {
+  const res = await fetch(`${DATA_URL}/categories`);
+  return await handleResponse<Category[]>(res);
+};
+
+export const fetchProductsByCategory = async (categorySlug: string): Promise<ProductsResponse> => {
+  const res = await fetch(`${DATA_URL}/category/${encodeURIComponent(categorySlug)}`);
+  return await handleResponse<ProductsResponse>(res);
+};;
