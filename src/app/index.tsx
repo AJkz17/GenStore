@@ -45,6 +45,14 @@ export default function HomeScreen() {
 
   const visibleCategories = categories.slice(0, 3);
   const remainingCategories = categories.slice(3);
+  const activeData = isSearchMode ? searchResults : isCategoryMode ? categoryResults : products;
+  const isFilteredMode = isSearchMode || isCategoryMode;
+  // Scrollbar (dynamic based on item (the more item, the narrow the scroll bar))
+  const thumbHeight = Math.max((visibleHeight / contentHeight) * visibleHeight, 20);
+  const [titleBarHeight, setTitleBarHeight] = useState(100);
+  const maxScroll = contentHeight - visibleHeight;
+  const scrollOffset = maxScroll > 0 ? (scrollProgress / maxScroll) * (visibleHeight - thumbHeight) : 0;
+  const canScroll = contentHeight > visibleHeight;
 
   const handleSelectCategory = (slug: string) => {
     setSearchQuery('');
@@ -96,21 +104,21 @@ export default function HomeScreen() {
     }
 
     const requestId = ++searchRequestIdRef.current;
-    setIsSearching(true);
+      setIsSearching(true);
 
-    searchProducts(debouncedQuery)
-      .then((data) => {
-        if (requestId === searchRequestIdRef.current) {
-          setSearchResults(data.products || []);
-        }
-      })
-      .catch((error) => console.error('Search error:', error))
-      .finally(() => {
-        if (requestId === searchRequestIdRef.current) {
-          setIsSearching(false);
-        }
-      });
-  }, [debouncedQuery, isSearchMode]);
+      searchProducts(debouncedQuery)
+        .then((data) => {
+          if (requestId === searchRequestIdRef.current) {
+            setSearchResults(data.products || []);
+          }
+        })
+        .catch((error) => console.error('Search error:', error))
+        .finally(() => {
+          if (requestId === searchRequestIdRef.current) {
+            setIsSearching(false);
+          }
+        });
+    }, [debouncedQuery, isSearchMode]);
 
   useEffect(() => {
     // Initial fetch for the first page of products
@@ -121,44 +129,26 @@ export default function HomeScreen() {
       .finally(() => setLoading(false));
   }, []);
 
-  const triggerRefreshBanner = () => {
-    setShowRefreshBanner(true);
-    Animated.sequence([
-      Animated.timing(bannerOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.delay(900),
-      Animated.timing(bannerOpacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setShowRefreshBanner(false));
-  };
-
   const onRefresh = async () => {
-    setRefreshing(true);
-    const minDelay = new Promise((resolve) => setTimeout(resolve, 500));
-    try {
-      const fetchPromise = isSearchMode
-        ? searchProducts(debouncedQuery).then((data) => setSearchResults(data.products || []))
-        : isCategoryMode
-        ? fetchProductsByCategory(selectedCategory).then((data) => setCategoryResults(data.products || []))
-        : fetchProductsWithPagination(LIMIT, 0).then((data) => {
-            setProducts(data.products || []);
-            setHasMore(true);
-          });
+  setRefreshing(true);
+  const minDelay = new Promise((resolve) => setTimeout(resolve, 500));
+  try {
+    const fetchPromise = isSearchMode
+      ? searchProducts(debouncedQuery).then((data) => setSearchResults(data.products || []))
+      : isCategoryMode
+      ? fetchProductsByCategory(selectedCategory).then((data) => setCategoryResults(data.products || []))
+      : fetchProductsWithPagination(LIMIT, 0).then((data) => {
+          setProducts(data.products || []);
+          setHasMore(true);
+        });
 
-      await Promise.all([fetchPromise, minDelay]);
-      triggerRefreshBanner();
-    } catch (error) {
-      console.error('Error refreshing:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+    await Promise.all([fetchPromise, minDelay]);
+  } catch (error) {
+    console.error('Error refreshing:', error);
+  } finally {
+    setRefreshing(false);
+  }
+};
 
   const loadMoreProducts = async () => {
     if (isLoadingRef.current || !hasMore) return;
@@ -190,16 +180,6 @@ export default function HomeScreen() {
       setLoading(false);
     }
   };
-
-  const activeData = isSearchMode ? searchResults : isCategoryMode ? categoryResults : products;
-  const isFilteredMode = isSearchMode || isCategoryMode;
-
-  // Scrollbar (dynamic based on item (the more item, the narrow the scroll bar))
-  const thumbHeight = Math.max((visibleHeight / contentHeight) * visibleHeight, 20);
-  const [titleBarHeight, setTitleBarHeight] = useState(100);
-  const maxScroll = contentHeight - visibleHeight;
-  const scrollOffset = maxScroll > 0 ? (scrollProgress / maxScroll) * (visibleHeight - thumbHeight) : 0;
-  const canScroll = contentHeight > visibleHeight;
 
   const panResponderRef = useRef<ReturnType<typeof PanResponder.create> | null>(null);
   if (!panResponderRef.current) {
@@ -397,6 +377,15 @@ export default function HomeScreen() {
           refreshing={refreshing}
           onRefresh={onRefresh}
         />
+
+        {refreshing && (
+          <View
+            pointerEvents="none"
+            style={[styles.refreshIndicatorContainer, { top: titleBarHeight + 12 }]}
+          >
+            <ActivityIndicator size="small" color="#1a365d" />
+          </View>
+        )}
          
          {/* Custom scrollbar ; rightside — hide while searching, since results aren't paginated */}
         {!isFilteredMode && canScroll && (
@@ -667,4 +656,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+
+  refreshIndicatorContainer: {
+  position: 'absolute',
+  alignSelf: 'center',
+  zIndex: 20,
+},
 });
